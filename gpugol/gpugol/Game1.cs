@@ -16,16 +16,20 @@ namespace gpugol
     {
         GraphicsDeviceManager graphics;
         KeyboardState keysc, keysl;
+        MouseState mousec, mousel;
 
         RenderTarget2D target;
         Texture2D previousframe;
         Texture2D fsquad;
+        float coloroffset;
+        uint mousesize = 5;
         
         VertexBuffer vbo;
         IndexBuffer ibo;
         Effect gpugol;
 
         Color[] screenbuffer;
+        Point defaultSize = new Point(1280, 720);
 
         public Game1()
         {
@@ -36,9 +40,12 @@ namespace gpugol
         protected override void Initialize()
         {
             base.Initialize();
+            coloroffset = 0.0f;
 
-            graphics.PreferredBackBufferWidth = 1280;
-            graphics.PreferredBackBufferHeight = 720;
+            IsMouseVisible = true;
+
+            graphics.PreferredBackBufferWidth = defaultSize.X;
+            graphics.PreferredBackBufferHeight = defaultSize.Y;
             graphics.ApplyChanges();
 
             VertexPositionTexture[] vpt;
@@ -74,6 +81,7 @@ namespace gpugol
             
             previousframe = new Texture2D(GraphicsDevice, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
             previousframe.SetData<Color>(screenbuffer);
+            gpugol.Parameters["resolution"].SetValue(new Vector2(graphics.PreferredBackBufferWidth, graphics.PreferredBackBufferHeight));
             DrawSplatter();
         }
 
@@ -92,12 +100,68 @@ namespace gpugol
             gpugol.Dispose();
         }
 
+        void resizeTextures()
+        {
+            int w = graphics.PreferredBackBufferWidth;
+            int h = graphics.PreferredBackBufferHeight;
+            GraphicsDevice.Textures[0] = null;
+            GraphicsDevice.SetRenderTarget(null);
+            previousframe = new Texture2D(GraphicsDevice, w, h);
+            fsquad = new Texture2D(GraphicsDevice, w, h);
+            target = new RenderTarget2D(GraphicsDevice, w, h);
+            screenbuffer = new Color[w * h];
+        }
+
+        /** Controls:
+         * Alt + Enter : Toggle full screen
+         * Escape : Quit
+         * Space : Generate noise
+         * click: inject pixels (draw)
+         * scroll: adjust draw size
+         */
         protected override void Update(GameTime gameTime)
         {
             keysl = keysc; keysc = Keyboard.GetState();
+            mousel = mousec; mousec = Mouse.GetState();
+
             if (keysc.IsKeyUp(Keys.Escape) && keysl.IsKeyDown(Keys.Escape))
                 this.Exit();
 
+            if ((keysc.IsKeyDown(Keys.LeftAlt) || keysc.IsKeyDown(Keys.RightAlt)) && (keysc.IsKeyDown(Keys.Enter) && keysl.IsKeyUp(Keys.Enter)))
+            {
+                if (graphics.IsFullScreen)
+                {
+                    graphics.PreferredBackBufferWidth = defaultSize.X;
+                    graphics.PreferredBackBufferHeight = defaultSize.Y;
+                }
+                else
+                {
+                    graphics.PreferredBackBufferWidth = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
+                    graphics.PreferredBackBufferHeight = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
+                }
+                gpugol.Parameters["resolution"].SetValue(new Vector2(graphics.PreferredBackBufferWidth, graphics.PreferredBackBufferHeight));
+                gpugol.Parameters["coloroffset"].SetValue(coloroffset);
+                resizeTextures();
+                graphics.ToggleFullScreen();
+            }
+
+            if (keysc.IsKeyDown(Keys.Space) && keysl.IsKeyUp(Keys.Space))
+                DrawSplatter();
+
+            int scrolldelta = mousec.ScrollWheelValue - mousel.ScrollWheelValue;
+            if (scrolldelta != 0)
+            {
+                // dumb hack because .Net wont let a uint be incremented by an int.
+                if (scrolldelta > 0)
+                    mousesize ++;
+                else
+                    mousesize --;
+
+                mousesize = Math.Max(1, mousesize);
+                mousesize = Math.Min(1000, mousesize);
+            }
+
+            coloroffset += (float)gameTime.ElapsedGameTime.TotalSeconds;
             base.Update(gameTime);
         }
 
@@ -122,15 +186,12 @@ namespace gpugol
             GraphicsDevice.SetRenderTarget(null);
             target.GetData<Color>(screenbuffer);
             GraphicsDevice.Textures[0] = null;
-
-            //fsquad.SetData<Color>(screenbuffer);
             previousframe.SetData<Color>(screenbuffer);
         }
 
         void DrawFrame()
         {
             gpugol.CurrentTechnique = gpugol.Techniques["gpugol"];
-            //gpugol.CurrentTechnique = gpugol.Techniques["randomsplatter"];
             gpugol.Parameters["previousframe"].SetValue(previousframe);
             DrawIndexed();
         }
@@ -156,12 +217,38 @@ namespace gpugol
             GraphicsDevice.SetRenderTarget(null);
             // Get the data we just drew to it
             target.GetData<Color>(screenbuffer);
+
+            // Inject pixels at the mouse position if the mouse button is down.
+            if (mousec.LeftButton == ButtonState.Pressed)
+            {
+                int x = mousec.X;
+                int y = mousec.Y;
+                int w = graphics.PreferredBackBufferWidth;
+                int h = graphics.PreferredBackBufferHeight;
+                Vector2 center = new Vector2(x, y);
+
+                screenbuffer[(Math.Min(Math.Max(0, y), h - 1) * w) + Math.Min(Math.Max(0, x), w - 1)] = Color.White;
+                for (int i = x - (int)mousesize; i < mousesize + x; ++i)
+                {
+                    for (int j = y - (int)mousesize; j < mousesize + y; ++j)
+                    {
+                        Vector2 current = new Vector2(Math.Min(Math.Max(0, i), w-1), Math.Min(Math.Max(0, j), h-1));
+                        float dist = Vector2.Distance(current, center); 
+                        if(((int)dist & 1) == 0)
+                            continue;
+                        if (dist <= mousesize)
+                        {
+                            screenbuffer[(int)current.Y * w + (int)current.X] =
+                                new Color(1.0f, current.X / (float)w, 1.0f - current.Y / (float)h, 1);
+                        }
+                    }
+                }
+            }
+
             // Unbind our texture
             GraphicsDevice.Textures[0] = null;
             // set the data on our texture
             previousframe.SetData<Color>(screenbuffer);
-            
-            //DrawFrame();
 
             gpugol.CurrentTechnique = gpugol.Techniques["randomsplatter"];
             gpugol.Parameters["previousframe"].SetValue(previousframe);

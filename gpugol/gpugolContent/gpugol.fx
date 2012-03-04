@@ -1,6 +1,9 @@
 Texture2D previousframe : register( s0 );
 SamplerState sam : register( s0 );
 
+uniform float2 resolution;
+uniform float coloroffset;
+
 struct VertexShaderInput
 {
     float4 Position : POSITION0;
@@ -11,7 +14,6 @@ struct VertexShaderOutput
 {
     float4 Position : POSITION0;
 	float2 uv : TEXCOORD0;
-	//float4 PosH  : SV_POSITION;
 };
 
 VertexShaderOutput generic_vs(VertexShaderInput input)
@@ -24,7 +26,7 @@ VertexShaderOutput generic_vs(VertexShaderInput input)
 
 float4 gpugol_ps(VertexShaderOutput input) : COLOR0
 {
-	const float2 n = float2(1.0 / 1280.0, 1.0 / 720.0);
+	const float2 n = float2(1.0 / resolution.x, 1.0 / resolution.y);
 	input.uv += n * 0.5;
 	float4 mycol = previousframe.Sample(sam, input.uv);
 	int aliveneighbours = 0;
@@ -61,7 +63,7 @@ float4 gpugol_ps(VertexShaderOutput input) : COLOR0
 	}
 
 	if(mycol.a > 0.5)
-		mycol.rg = input.uv;
+		mycol.bg = input.uv;
 	
 
 	return mycol;
@@ -69,7 +71,7 @@ float4 gpugol_ps(VertexShaderOutput input) : COLOR0
 
 float4 splatter_ps(VertexShaderOutput input) : COLOR0
 {
-	const float2 n = float2(1.0 / 1280.0, 1.0 / 720.0) * 0.5;
+	const float2 n = float2(1.0 / resolution.x, 1.0 / resolution.y) * 0.5;
     return previousframe.Sample(sam, input.uv + n);
 }
 
