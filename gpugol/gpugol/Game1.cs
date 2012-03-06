@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
@@ -9,6 +10,9 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Media;
 using System.Diagnostics;
+using Form = System.Windows.Forms.Form;
+using DragEventHandler = System.Windows.Forms.DragEventHandler;
+using DragEventArgs = System.Windows.Forms.DragEventArgs;
 
 namespace gpugol
 {
@@ -17,9 +21,11 @@ namespace gpugol
         gol, // Game of Life
         hl, // high life
         cs, // chaos seeds
-        dan // Day and Night
+        dan, // Day and Night
+        r90,
     }
 
+    delegate void Stamper();
     public class Game1 : Microsoft.Xna.Framework.Game
     {
         GraphicsDeviceManager graphics;
@@ -35,10 +41,21 @@ namespace gpugol
         IndexBuffer ibo;
         Effect effect;
         Automation automation = Automation.gol;
+        
+        // Just a copy of our window as a form for drag and drop events.
+        Form mainForm;
 
+        // a delegate we call when we have a buffer of stamp data to use.
+        Stamper stamper = null;
+        Color[] stampdata;
+        int stampw;
+        int stamph;
+        int stampx;
+        int stampy;
 
         Color[] screenbuffer;
         Point defaultSize = new Point(1280, 720);
+
 
         public string GetAutomationString()
         {
@@ -53,7 +70,8 @@ namespace gpugol
                     return "gpucs";
                 case Automation.dan:
                     return "gpudan";
-
+                case Automation.r90:
+                    return "gpur90";
             }
         }
 
@@ -65,8 +83,11 @@ namespace gpugol
 
         protected override void Initialize()
         {
+            mainForm = (Form)Form.FromHandle(Window.Handle);
+            mainForm.AllowDrop = true;
+            mainForm.DragEnter += new DragEventHandler(mainForm_DragEnter);
+            mainForm.DragDrop += new DragEventHandler(mainForm_DragDrop);
             base.Initialize();
-
             IsMouseVisible = true;
 
             graphics.PreferredBackBufferWidth = defaultSize.X;
@@ -110,6 +131,72 @@ namespace gpugol
             DrawSplatter();
         }
 
+        void stamp()
+        {
+            int w = graphics.PreferredBackBufferWidth;
+            int h = graphics.PreferredBackBufferHeight;
+            for (int i = 0; i < stampw; ++i)
+            {
+                for (int j = 0; j < stamph; ++j)
+                {
+                    int dx = stampx + i;
+                    int dy = stampy + j;
+                    int idx = dy * w + dx;
+                    if (idx < screenbuffer.Length && idx > 0 && dx < w && dy < h)
+                    {
+                        if (stampdata[j * stampw + i].R > 0)
+                            screenbuffer[idx] = Color.White;
+                        else
+                            screenbuffer[idx] = new Color(0, 0, 0, 0);
+                    }
+
+                }
+            }
+            stamper = null;
+        }
+
+        void mainForm_DragDrop(object sender, DragEventArgs e)
+        {
+            try
+            {
+                Array a = (Array)e.Data.GetData(System.Windows.Forms.DataFormats.FileDrop);
+                if (a != null)
+                {
+                    string s = a.GetValue(0) as string;
+                    if (s.ToUpper().Contains("PNG"))
+                    {
+                        FileStream fs = File.Open(s, FileMode.Open);
+                        Texture2D stamp = Texture2D.FromStream(GraphicsDevice, fs as Stream);
+                        fs.Close();
+                        stampdata = new Color[stamp.Width * stamp.Height];
+                        stamp.GetData<Color>(stampdata);
+                        stampw = stamp.Width;
+                        stamph = stamp.Height;
+                        stampx = e.X - Window.ClientBounds.Left;
+                        stampy = e.Y - Window.ClientBounds.Top;
+
+                        stamper = this.stamp;
+                    }
+                }
+            }
+            catch(Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine(ex.Message);
+            }
+        }
+
+        void mainForm_DragEnter(object sender, DragEventArgs e)
+        {
+            System.Diagnostics.Trace.WriteLine(e.Data.ToString());
+            if (e.Data.GetDataPresent(System.Windows.Forms.DataFormats.FileDrop))
+            {
+                e.Effect = System.Windows.Forms.DragDropEffects.Copy;
+            }
+            else
+                e.Effect = System.Windows.Forms.DragDropEffects.None;
+            // Do nothing for now. Might use this later.
+        }
+
         void graphics_PreparingDeviceSettings(object sender, PreparingDeviceSettingsEventArgs e)
         {
             e.GraphicsDeviceInformation.PresentationParameters.RenderTargetUsage = RenderTargetUsage.DiscardContents;
@@ -141,12 +228,14 @@ namespace gpugol
          * Alt + Enter : Toggle full screen
          * Escape : Quit
          * Space : Generate noise
+         * Tilde: clear
          * click: inject pixels (draw)
          * scroll: adjust draw size
          * 1: use game of life rules
          * 2: use high life rules
          * 3: use chaos seeds rules
          * 4: use day and night rules
+         * 5: use rule 90
          */
         protected override void Update(GameTime gameTime)
         {
@@ -176,6 +265,9 @@ namespace gpugol
             if (keysc.IsKeyDown(Keys.Space) && keysl.IsKeyUp(Keys.Space))
                 DrawSplatter();
 
+            if (keysc.IsKeyDown(Keys.OemTilde) && keysl.IsKeyUp(Keys.OemTilde))
+                resizeTextures();      
+
             if (keysc.IsKeyDown(Keys.D1) && keysl.IsKeyUp(Keys.D1))
                 automation = Automation.gol;
 
@@ -187,6 +279,9 @@ namespace gpugol
 
             if (keysc.IsKeyDown(Keys.D4) && keysl.IsKeyUp(Keys.D4))
                 automation = Automation.dan;
+            
+            if (keysc.IsKeyDown(Keys.D5) && keysl.IsKeyUp(Keys.D5))
+                automation = Automation.r90;
 
             int scrolldelta = mousec.ScrollWheelValue - mousel.ScrollWheelValue;
             if (scrolldelta != 0)
@@ -268,7 +363,7 @@ namespace gpugol
             target.GetData<Color>(screenbuffer);
 
             // Inject pixels at the mouse position if the mouse button is down.
-            if (mousec.LeftButton == ButtonState.Pressed || mousec.RightButton == ButtonState.Pressed)
+            if ((mousec.LeftButton == ButtonState.Pressed || mousec.RightButton == ButtonState.Pressed) && mainForm.Focused)
             {
                 int x = mousec.X;
                 int y = mousec.Y;
@@ -299,6 +394,9 @@ namespace gpugol
                     }
                 }
             }
+
+            if (stamper != null)
+                stamper();
 
             // Unbind our texture
             GraphicsDevice.Textures[0] = null;
