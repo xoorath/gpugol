@@ -12,6 +12,14 @@ using System.Diagnostics;
 
 namespace gpugol
 {
+    public enum Automation
+    {
+        gol, // Game of Life
+        hl, // high life
+        cs, // chaos seeds
+        dan // Day and Night
+    }
+
     public class Game1 : Microsoft.Xna.Framework.Game
     {
         GraphicsDeviceManager graphics;
@@ -21,15 +29,33 @@ namespace gpugol
         RenderTarget2D target;
         Texture2D previousframe;
         Texture2D fsquad;
-        float coloroffset;
         uint mousesize = 5;
         
         VertexBuffer vbo;
         IndexBuffer ibo;
-        Effect gpugol;
+        Effect effect;
+        Automation automation = Automation.gol;
+
 
         Color[] screenbuffer;
         Point defaultSize = new Point(1280, 720);
+
+        public string GetAutomationString()
+        {
+            switch (automation)
+            {
+                default:
+                case Automation.gol:
+                    return "gpugol";
+                case Automation.hl:
+                    return "gpuhl";
+                case Automation.cs:
+                    return "gpucs";
+                case Automation.dan:
+                    return "gpudan";
+
+            }
+        }
 
         public Game1()
         {
@@ -40,7 +66,6 @@ namespace gpugol
         protected override void Initialize()
         {
             base.Initialize();
-            coloroffset = 0.0f;
 
             IsMouseVisible = true;
 
@@ -81,7 +106,7 @@ namespace gpugol
             
             previousframe = new Texture2D(GraphicsDevice, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
             previousframe.SetData<Color>(screenbuffer);
-            gpugol.Parameters["resolution"].SetValue(new Vector2(graphics.PreferredBackBufferWidth, graphics.PreferredBackBufferHeight));
+            effect.Parameters["resolution"].SetValue(new Vector2(graphics.PreferredBackBufferWidth, graphics.PreferredBackBufferHeight));
             DrawSplatter();
         }
 
@@ -92,12 +117,12 @@ namespace gpugol
 
         protected override void LoadContent()
         {
-            gpugol = Content.Load<Effect>("gpugol");
+            effect = Content.Load<Effect>("gpugol");
         }
 
         protected override void UnloadContent()
         {
-            gpugol.Dispose();
+            effect.Dispose();
         }
 
         void resizeTextures()
@@ -118,6 +143,10 @@ namespace gpugol
          * Space : Generate noise
          * click: inject pixels (draw)
          * scroll: adjust draw size
+         * 1: use game of life rules
+         * 2: use high life rules
+         * 3: use chaos seeds rules
+         * 4: use day and night rules
          */
         protected override void Update(GameTime gameTime)
         {
@@ -139,8 +168,7 @@ namespace gpugol
                     graphics.PreferredBackBufferWidth = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
                     graphics.PreferredBackBufferHeight = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
                 }
-                gpugol.Parameters["resolution"].SetValue(new Vector2(graphics.PreferredBackBufferWidth, graphics.PreferredBackBufferHeight));
-                gpugol.Parameters["coloroffset"].SetValue(coloroffset);
+                effect.Parameters["resolution"].SetValue(new Vector2(graphics.PreferredBackBufferWidth, graphics.PreferredBackBufferHeight));
                 resizeTextures();
                 graphics.ToggleFullScreen();
             }
@@ -148,20 +176,41 @@ namespace gpugol
             if (keysc.IsKeyDown(Keys.Space) && keysl.IsKeyUp(Keys.Space))
                 DrawSplatter();
 
+            if (keysc.IsKeyDown(Keys.D1) && keysl.IsKeyUp(Keys.D1))
+                automation = Automation.gol;
+
+            if (keysc.IsKeyDown(Keys.D2) && keysl.IsKeyUp(Keys.D2))
+                automation = Automation.hl;
+
+            if (keysc.IsKeyDown(Keys.D3) && keysl.IsKeyUp(Keys.D3))
+                automation = Automation.cs;
+
+            if (keysc.IsKeyDown(Keys.D4) && keysl.IsKeyUp(Keys.D4))
+                automation = Automation.dan;
+
             int scrolldelta = mousec.ScrollWheelValue - mousel.ScrollWheelValue;
             if (scrolldelta != 0)
             {
                 // dumb hack because .Net wont let a uint be incremented by an int.
-                if (scrolldelta > 0)
-                    mousesize ++;
+                if (mousesize < 10)
+                {
+                    if (scrolldelta > 0)
+                        mousesize++;
+                    else
+                        mousesize--;
+                }
                 else
-                    mousesize --;
+                {
+                    if (scrolldelta > 0)
+                        mousesize = (uint)(((double)mousesize) * 1.2);
+                    else
+                        mousesize = (uint)(((double)mousesize) * 0.8);
+                }
 
                 mousesize = Math.Max(1, mousesize);
                 mousesize = Math.Min(1000, mousesize);
             }
 
-            coloroffset += (float)gameTime.ElapsedGameTime.TotalSeconds;
             base.Update(gameTime);
         }
 
@@ -179,8 +228,8 @@ namespace gpugol
 
             fsquad.SetData<Color>(screenbuffer);
             GraphicsDevice.SetRenderTarget(target);
-            gpugol.CurrentTechnique = gpugol.Techniques["randomsplatter"];
-            gpugol.Parameters["previousframe"].SetValue(fsquad);
+            effect.CurrentTechnique = effect.Techniques["randomsplatter"];
+            effect.Parameters["previousframe"].SetValue(fsquad);
             
             DrawIndexed();
             GraphicsDevice.SetRenderTarget(null);
@@ -191,14 +240,14 @@ namespace gpugol
 
         void DrawFrame()
         {
-            gpugol.CurrentTechnique = gpugol.Techniques["gpugol"];
-            gpugol.Parameters["previousframe"].SetValue(previousframe);
+            effect.CurrentTechnique = effect.Techniques[GetAutomationString()];
+            effect.Parameters["previousframe"].SetValue(previousframe);
             DrawIndexed();
         }
 
         void DrawIndexed()
         {
-            gpugol.CurrentTechnique.Passes[0].Apply();
+            effect.CurrentTechnique.Passes[0].Apply();
             GraphicsDevice.SetVertexBuffer(vbo);
             GraphicsDevice.Indices = ibo;
             GraphicsDevice.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, 6, 0, 2);
@@ -219,7 +268,7 @@ namespace gpugol
             target.GetData<Color>(screenbuffer);
 
             // Inject pixels at the mouse position if the mouse button is down.
-            if (mousec.LeftButton == ButtonState.Pressed)
+            if (mousec.LeftButton == ButtonState.Pressed || mousec.RightButton == ButtonState.Pressed)
             {
                 int x = mousec.X;
                 int y = mousec.Y;
@@ -234,12 +283,18 @@ namespace gpugol
                     {
                         Vector2 current = new Vector2(Math.Min(Math.Max(0, i), w-1), Math.Min(Math.Max(0, j), h-1));
                         float dist = Vector2.Distance(current, center); 
-                        if(((int)dist & 1) == 0)
-                            continue;
                         if (dist <= mousesize)
                         {
-                            screenbuffer[(int)current.Y * w + (int)current.X] =
-                                new Color(1.0f, current.X / (float)w, 1.0f - current.Y / (float)h, 1);
+                            if (mousec.RightButton == ButtonState.Pressed)
+                            {
+                                screenbuffer[(int)current.Y * w + (int)current.X] = new Color(0, 0, 0, 0);
+                            }
+                            else
+                            {
+                                screenbuffer[(int)current.Y * w + (int)current.X] =
+                                    new Color(1.0f, current.X / (float)w, 1.0f - current.Y / (float)h, 1);
+                            }
+
                         }
                     }
                 }
@@ -250,8 +305,8 @@ namespace gpugol
             // set the data on our texture
             previousframe.SetData<Color>(screenbuffer);
 
-            gpugol.CurrentTechnique = gpugol.Techniques["randomsplatter"];
-            gpugol.Parameters["previousframe"].SetValue(previousframe);
+            effect.CurrentTechnique = effect.Techniques["randomsplatter"];
+            effect.Parameters["previousframe"].SetValue(previousframe);
             DrawIndexed();
         }
     }

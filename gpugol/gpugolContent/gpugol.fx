@@ -24,48 +24,106 @@ VertexShaderOutput generic_vs(VertexShaderInput input)
     return output;
 }
 
+int MooreNeighbours(float2 uv, float2 hp)
+{
+	int neighbours = 0;
+	neighbours += previousframe.Sample(sam, uv + hp).a > 0.5 ? 1 : 0;
+	neighbours += previousframe.Sample(sam, uv - hp).a > 0.5 ? 1 : 0;
+	neighbours += previousframe.Sample(sam, float2(uv.x, uv.y + hp.y)).a > 0.5 ? 1 : 0;
+	neighbours += previousframe.Sample(sam, float2(uv.x, uv.y - hp.y)).a > 0.5 ? 1 : 0;
+	neighbours += previousframe.Sample(sam, float2(uv.x + hp.x, uv.y)).a > 0.5 ? 1 : 0;
+	neighbours += previousframe.Sample(sam, float2(uv.x - hp.x, uv.y)).a > 0.5 ? 1 : 0;
+	neighbours += previousframe.Sample(sam, float2(uv.x + hp.x, uv.y - hp.y)).a > 0.5 ? 1 : 0;
+	neighbours += previousframe.Sample(sam, float2(uv.x - hp.x, uv.y + hp.y)).a > 0.5 ? 1 : 0;
+	return neighbours;
+}
+
 float4 gpugol_ps(VertexShaderOutput input) : COLOR0
 {
 	const float2 n = float2(1.0 / resolution.x, 1.0 / resolution.y);
-	input.uv += n * 0.5;
+	input.uv += n * 0.5; // Adjust for the half pixel.
 	float4 mycol = previousframe.Sample(sam, input.uv);
-	int aliveneighbours = 0;
-	float4 neighbours[8] = 
-	{
-		previousframe.Sample(sam, input.uv + n),
-		previousframe.Sample(sam, input.uv - n),
-		previousframe.Sample(sam, float2(input.uv.x, input.uv.y + n.y)),
-		previousframe.Sample(sam, float2(input.uv.x, input.uv.y - n.y)),
-		previousframe.Sample(sam, float2(input.uv.x + n.x, input.uv.y)),
-		previousframe.Sample(sam, float2(input.uv.x - n.x, input.uv.y)),
-		previousframe.Sample(sam, float2(input.uv.x + n.x, input.uv.y - n.y)),
-		previousframe.Sample(sam, float2(input.uv.x - n.x, input.uv.y + n.y))
-	};
-	
-	for(int i = 0; i < 8; ++i)	
-		if ( neighbours[i].a > 0.5 )
-			++aliveneighbours;	
-	// alive
+	int aliveneighbours = MooreNeighbours(input.uv, n);
+
 	if( mycol.a > 0.5 )
 	{
 		if ( aliveneighbours == 2 || aliveneighbours == 3)
-			mycol = 1.0.rrrr;
+			mycol = float4(1.0, input.uv, 1.0);
 		else
-			mycol = 0.0.rrrr;
+			mycol = float4(0, 0, 0, 0);
 	}
-	// dead
 	else
 	{
-		if(aliveneighbours == 3)
-			mycol = 1.0;
+		if(aliveneighbours == 3 )
+			mycol = float4(1.0, input.uv, 1.0);
 		else
-			mycol = 0.0;
+			mycol = float4(0, 0, 0, 0);
 	}
+	return mycol;
+}
 
-	if(mycol.a > 0.5)
-		mycol.bg = input.uv;
-	
+float4 gpudan_ps(VertexShaderOutput input) : COLOR0
+{
+	const float2 n = float2(1.0 / resolution.x, 1.0 / resolution.y);
+	input.uv += n * 0.5; // Adjust for the half pixel.
+	float4 mycol = previousframe.Sample(sam, input.uv);
+	int aliveneighbours = MooreNeighbours(input.uv, n);
 
+	if( mycol.a > 0.5 )
+	{
+		if ( aliveneighbours == 3 || aliveneighbours == 4 || aliveneighbours >= 6)
+			mycol = float4(1.0, input.uv, 1.0);
+		else
+			mycol = float4(0, 0, 0, 0);
+	}
+	else
+	{
+		if(aliveneighbours == 3 || aliveneighbours >= 6)
+			mycol = float4(1.0, input.uv, 1.0);
+		else
+			mycol = float4(0, 0, 0, 0);
+	}
+	return mycol;
+}
+
+float4 gpuhl_ps(VertexShaderOutput input) : COLOR0
+{
+	const float2 n = float2(1.0 / resolution.x, 1.0 / resolution.y);
+	input.uv += n * 0.5; // Adjust for the half pixel.
+	float4 mycol = previousframe.Sample(sam, input.uv);
+	int aliveneighbours = MooreNeighbours(input.uv, n);
+
+	if( mycol.a > 0.5 )
+	{
+		if ( aliveneighbours == 2 || aliveneighbours == 3)
+			mycol = float4(1.0, input.uv, 1.0);
+		else
+			mycol = float4(0, 0, 0, 0);
+	}
+	else
+	{
+		if(aliveneighbours == 3 || aliveneighbours == 6)
+			mycol = float4(1.0, input.uv, 1.0);
+		else
+			mycol = float4(0, 0, 0, 0);
+	}
+	return mycol;
+}
+
+float4 gpucs_ps(VertexShaderOutput input) : COLOR0
+{
+	const float2 n = float2(1.0 / resolution.x, 1.0 / resolution.y);
+	input.uv += n * 0.5; // Adjust for the half pixel.
+	float4 mycol = previousframe.Sample(sam, input.uv);
+	int aliveneighbours = MooreNeighbours(input.uv, n);
+
+	if( mycol.a < 0.5 )
+	{
+		if ( aliveneighbours == 2)
+			mycol = float4(1.0, input.uv, 1.0);
+		else
+			mycol = float4(0, 0, 0, 0);
+	}
 	return mycol;
 }
 
@@ -84,6 +142,32 @@ technique gpugol
     }
 }
 
+technique gpudan
+{
+    pass Pass1
+    {
+        VertexShader = compile vs_2_0 generic_vs();
+        PixelShader = compile ps_2_0 gpudan_ps();
+    }
+}
+
+technique gpuhl
+{
+    pass Pass1
+    {
+        VertexShader = compile vs_2_0 generic_vs();
+        PixelShader = compile ps_2_0 gpuhl_ps();
+    }
+}
+
+technique gpucs
+{
+    pass Pass1
+    {
+        VertexShader = compile vs_2_0 generic_vs();
+        PixelShader = compile ps_2_0 gpucs_ps();
+    }
+}
 
 technique randomsplatter
 {
